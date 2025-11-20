@@ -85,6 +85,16 @@ Example output: See `/samples/test_1.pdf`
 
 ---
 
+## Problems Being Encountered
+
+- Though play description is logical and reliable, there are obscure plays that may give the concatenating logic problems (triple plays, long relays, etc.)
+- The 'earned run' stat calculation is being fine-tuned but is unreliable due to the concept of runner attribution to pitchers who leave games mid-inning.
+- Basepath highlighting is mostly reliable -- most commonly encounters issues in extra innings with the 'ghost runner' rule.
+- Pinch-hitters and pinch-runners are automatically generated at the bottom of the 'batter' column instead of in or below the spot in the lineup they took over for. This is the next step of code generation.
+- If you encounter any more problems or inconsistencies, let me know!
+
+---
+
 ## 🚫 Legal Notice
   
 This project is **not affiliated with or endorsed by Major League Baseball (MLB)** or MLB Advanced Media.
