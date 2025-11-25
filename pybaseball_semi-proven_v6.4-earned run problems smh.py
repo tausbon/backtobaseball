@@ -558,118 +558,123 @@ def parse_reached_on_error(description):
 
 # Generate a miniature baseball diamond graphic
 class BaseballDiamondGraphic(Flowable):
-    pdfmetrics.registerFont(TTFont('Unifont', "C:/Users/ncflo/.matplotlib/Unifont.ttf"))
     def __init__(self, outcome, size=35, bases=None, balls=0, strikes=0):
         """
         outcome: The result of the play.
         size: The size of the diamond graphic.
-        bases: List of bases occupied [1, 2, 3, 'home'].
+        bases: List of bases occupied [1, 2, 3, 4].
         """
         Flowable.__init__(self)
-        self.outcome = outcome
+        self.outcome = str(outcome) if outcome is not None else "-"
         self.size = size
         self.bases = bases if bases else []
         self.width = size
-        self.height = size  # Default to no runners
+        self.height = size
         self.balls = balls
         self.strikes = strikes
-        
+
     def draw(self):
         d = self.canv
         size = self.size
         center = size / 2
-        offset = size / 8  # Offset for base circles
 
-        # Translate the drawing origin to center of the cell
+        # Center origin in the cell
         d.translate(center + 4, center - 2)
 
-        # Draw the diamond symmetrically around the center
+        # Diamond outline
         d.setStrokeColor(colors.black)
         d.setLineWidth(1)
-        d.line(0, -center, center, 0)       # First base
-        d.line(center, 0, 0, center)        # Second base
-        d.line(0, center, -center, 0)       # Third base
-        d.line(-center, 0, 0, -center)      # Home plate
 
-        # Basepath lines with highlights
-        highlight_color = colors.red
-        normal_color = colors.black
-        d.setLineWidth(2)
-
-        # Coordinates for square diamond corners
         home = (0, -self.size * 0.4)
         first = (self.size * 0.4, 0)
         second = (0, self.size * 0.4)
         third = (-self.size * 0.4, 0)
 
-        # Draw diamond outline in black
-        d.setStrokeColor(normal_color)
+        # Base diamond
         d.line(*home, *first)
         d.line(*first, *second)
         d.line(*second, *third)
         d.line(*third, *home)
 
-        # Draw balls and strikes in top-left corner
-        dot_radius = 2.5
+        # Balls / strikes (small circles, notebook vibe)
+        dot_radius = 2.2
         spacing = 4
+        bx = -self.width / 2 - 2
+        by = self.height / 2
 
-        bx = -self.width / 2 - 2  # X offset from left edge (inside box)
-        by = self.height / 2  # Y offset from top edge (inside box)
-
-        # Right before drawing circles:
         d.setLineWidth(0.3)
 
-        # Balls: vertical stack of 3 green circles
+        # Strikes (2)
         for i in range(2):
             cy = by - i * spacing
-            d.setFillColor(colors.red if i < self.strikes else colors.white)
+            d.setFillColor(colors.white)
             d.setStrokeColor(colors.black)
-            d.circle(bx + dot_radius * 2 + 2, cy, dot_radius, stroke=1, fill=1)
-
-        # Strikes: vertical stack of 2 red circles, slightly offset to the right
-        for i in range(3):
-            cy = by - i * spacing
-            d.setFillColor(colors.green if i < self.balls else colors.white)
-            d.setStrokeColor(colors.black)
+            if i < self.strikes:
+                d.setFillColor(colors.red)
             d.circle(bx, cy, dot_radius, stroke=1, fill=1)
 
-        d.setLineWidth(2)  # ✅ Reset thicker line for basepaths
+        # Balls (3)
+        for i in range(3):
+            cy = by - i * spacing
+            d.setFillColor(colors.white)
+            d.setStrokeColor(colors.black)
+            if i < self.balls:
+                d.setFillColor(colors.green)
+            d.circle(bx + dot_radius * 2 + 2, cy, dot_radius, stroke=1, fill=1)
 
-        # Highlight each basepath if base was reached
+        # Highlight basepaths in a slightly thicker line
+        d.setLineWidth(1.5)
+        d.setStrokeColor(colors.black)
         if 1 in self.bases:
-            d.setStrokeColor(highlight_color)
             d.line(*home, *first)
         if 2 in self.bases:
-            d.setStrokeColor(highlight_color)
             d.line(*first, *second)
         if 3 in self.bases:
-            d.setStrokeColor(highlight_color)
             d.line(*second, *third)
         if 4 in self.bases:
-            d.setStrokeColor(highlight_color)
             d.line(*third, *home)
-        # print(f"Drawing diamond for outcome: {self.outcome} — bases: {self.bases}")
-       
-        if '/' in self.outcome:
-            words = self.outcome.split('/')
-            words = [words[1], words[0]]  # Always show first part on top
+
+        # Outcome text inside the diamond
+        text = self.outcome
+        if "/" in text:
+            parts = text.split("/")
+            # Show first part on top
+            parts = [parts[0], parts[1]]
         else:
-            words = [self.outcome]
-        max_font_size = self.size / 3.5
+            parts = [text]
+
+        # font size auto-fit
+        longest = max(len(p) for p in parts)
+        max_font_size = self.size / 3.3
         min_font_size = 4
-        font_size = max(min_font_size, min(max_font_size, self.size * 2 / len(self.outcome)))
-        d.setFont("Unifont", font_size)
-        d.setFillColor(colors.black)
-    
-        if len(words) > 1:
-            y_offset = -font_size * (len(words) - 1) / 2
-            for word in words:
-                d.drawCentredString(0, y_offset, word)
+        font_size = max(min_font_size, min(max_font_size, self.size * 1.6 / max(1, longest)))
+
+        d.setFont(SCORECARD_CELL_FONT, font_size)
+        d.setFillColor(BODY_TEXT_COLOR)
+
+        if len(parts) > 1:
+            y_offset = -font_size * 0.5
+            for line in parts:
+                d.drawCentredString(0, y_offset, line)
                 y_offset += font_size
         else:
-            d.drawCentredString(0, -font_size / 4, words[0])
+            d.drawCentredString(0, -font_size / 3, parts[0])
 
 # Generate the PDF
+def draw_page_background(canvas, doc):
+    """Light notebook-gray background + thin border."""
+    canvas.saveState()
+    w, h = landscape(letter)
+    canvas.setFillColor(PAGE_BG_COLOR)
+    canvas.rect(0, 0, w, h, fill=1, stroke=0)
+
+    # subtle border
+    canvas.setStrokeColor(colors.HexColor("#b0b0b0"))
+    canvas.setLineWidth(0.7)
+    margin = 18
+    canvas.rect(margin, margin, w - 2 * margin, h - 2 * margin, fill=0, stroke=1)
+    canvas.restoreState()
+
 def save_combined_scorecard(df, output_pdf, venue=None, weather=None, attendance=None, title=None, play_by_play_data=None, id_to_name=None):
     pdfmetrics.registerFont(TTFont('Unifont', "C:/Users/ncflo/.matplotlib/Unifont.ttf"))
     doc = SimpleDocTemplate(
@@ -735,14 +740,16 @@ def save_combined_scorecard(df, output_pdf, venue=None, weather=None, attendance
         box_score_data.append(row)
 
     box_score_table = Table([column_headers] + box_score_data, hAlign='CENTER')
-    box_score_table.setStyle(TableStyle([
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1,-1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10)
-    ]))
+box_score_table.setStyle(TableStyle([
+    ('GRID', (0, 0), (-1, -1), 0.5, GRID_COLOR),
+    ('BACKGROUND', (0, 0), (-1, 0), HEADER_BG_COLOR),
+    ('TEXTCOLOR', (0, 0), (-1, 0), HEADER_TEXT_COLOR),
+    ('FONTNAME', (0, 0), (-1, 0), SCORECARD_BOLD_FONT),
+    ('FONTNAME', (0, 1), (-1, -1), SCORECARD_MAIN_FONT),
+    ('FONTSIZE', (0, 0), (-1, -1), BOX_FONT_SIZE),
+    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+]))
+
 
     elements.append(Spacer(1, 6))
     elements.append(Paragraph("<b>Box Score</b>", styles['Heading2']))
@@ -771,7 +778,9 @@ def save_combined_scorecard(df, output_pdf, venue=None, weather=None, attendance
 
         # Add rows with diamond graphics
         for _, row in batter_stats.iterrows():
-            row_data = [row['batter']]
+    display_batter = str(row['batter']).title()
+    row_data = [display_batter]
+
             for i in range(1, max_inning + 1):
                 outcome = row[str(i)]
                 if isinstance(outcome, tuple):  # ✅ Ensure only the first value (string) is used
@@ -855,17 +864,23 @@ def save_combined_scorecard(df, output_pdf, venue=None, weather=None, attendance
         col_width = usable_width / other_cols
 
         col_widths = [col_width * batter_col_factor] + [col_width] * (total_columns - 1)
+table = Table(table_data, colWidths=col_widths, rowHeights=ROW_HEIGHT, repeatRows=1)
+table.setStyle(TableStyle([
+    ('GRID', (0, 0), (-1, -1), 0.5, GRID_COLOR),
+    ('BACKGROUND', (0, 0), (-1, 0), HEADER_BG_COLOR),
+    ('TEXTCOLOR', (0, 0), (-1, 0), HEADER_TEXT_COLOR),
 
-        table = Table(table_data, colWidths=col_widths, rowHeights=42, repeatRows=1)
-        table.setStyle(TableStyle([
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('FONTNAME', (0, 0), (-1,-1), 'Unifont'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),  # ✅ Adjust Font Size if Needed
-    ]))
+    # Fonts: header vs batter names vs cells
+    ('FONTNAME', (0, 0), (-1, 0), SCORECARD_BOLD_FONT),          # header row
+    ('FONTNAME', (0, 1), (0, -1), SCORECARD_MAIN_FONT),          # batter names
+    ('FONTNAME', (1, 1), (-1, -1), SCORECARD_CELL_FONT),         # inning boxes + stats
+    ('FONTSIZE', (0, 0), (-1, -1), BOX_FONT_SIZE),
+
+    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+]))
+
 
         elements.append(table)
 
@@ -886,7 +901,8 @@ def save_combined_scorecard(df, output_pdf, venue=None, weather=None, attendance
             if inferred_team != team:
                 continue
 
-            name = id_to_name.get(pitcher, str(pitcher))
+          name = str(id_to_name.get(pitcher, str(pitcher))).title()
+
             pitcher_table_data.append([
                 name,
                 stats['IP'],
@@ -915,7 +931,12 @@ def save_combined_scorecard(df, output_pdf, venue=None, weather=None, attendance
             elements.append(PageBreak()) # ✅ Separate each team's scorecard onto a new page
         
     #Generate the PDF
-    doc.build(elements)
+    doc.build(
+    elements,
+    onFirstPage=draw_page_background,
+    onLaterPages=draw_page_background
+)
+
     print(f"PDF scorecard saved at: {output_pdf}")
 
 # Process play-by-play data
@@ -1324,4 +1345,5 @@ if __name__ == "__main__":
             
  # Keep the window open if running in Windows (for debugging purposes)
     input("Press Enter to exit...")
+
     
