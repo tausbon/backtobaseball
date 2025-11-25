@@ -750,11 +750,10 @@ box_score_table.setStyle(TableStyle([
     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
 ]))
 
-
-    elements.append(Spacer(1, 6))
-    elements.append(Paragraph("<b>Box Score</b>", styles['Heading2']))
-    elements.append(box_score_table)
-    elements.append(Spacer(1, 10))
+        elements.append(Spacer(1, 6))
+        elements.append(Paragraph("<b>Box Score</b>", styles['Heading2']))
+        elements.append(box_score_table)
+        elements.append(Spacer(1, 10))
 
 
     for idx, (team_key, batter_stats) in enumerate(team_scorecards.items()):
@@ -1347,3 +1346,4 @@ if __name__ == "__main__":
     input("Press Enter to exit...")
 
     
+
