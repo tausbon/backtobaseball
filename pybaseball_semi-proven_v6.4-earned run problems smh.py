@@ -711,9 +711,15 @@ def save_combined_scorecard(
     title=None,
     play_by_play_data=None,
     id_to_name=None,
+    pitcher_stats=None,   # 👈 add this
 ):
-    # You can tweak font path if needed
-    pdfmetrics.registerFont(TTFont("Unifont", "C:/Users/ncflo/.matplotlib/Unifont.ttf"))
+
+    """
+    Build and save the combined scorecard PDF.
+    Expects:
+      - team_scorecards: dict[team_abbr -> batter_stats DataFrame]
+      - play_by_play_data: DataFrame returned by process_play_by_play
+    """
 
     doc = SimpleDocTemplate(
         output_pdf,
@@ -723,26 +729,33 @@ def save_combined_scorecard(
         leftMargin=30,
         rightMargin=30,
     )
+
     styles = getSampleStyleSheet()
     elements = []
 
+    # Simple paragraph style (no custom font file)
     outcome_style = ParagraphStyle(
         "OutcomeStyle",
         parent=styles["Normal"],
-        fontName="Unifont",
+        fontName="Helvetica",
         fontSize=10,
     )
 
-    # title
+    # ---- Title ----
     if title:
-        title_style = ParagraphStyle("CustomTitle", parent=styles["Title"], fontSize=14, spaceAfter=10)
+        title_style = ParagraphStyle(
+            "CustomTitle",
+            parent=styles["Title"],
+            fontSize=14,
+            spaceAfter=10,
+        )
         elements.append(Paragraph(f"<b>{title}</b>", title_style))
         elements.append(Spacer(1, 4))
 
-    # game info
-    valid_venue = venue and venue.lower() != "unknown ballpark"
+    # ---- Game info (venue / weather / attendance) ----
+    valid_venue = venue and str(venue).lower() != "unknown ballpark"
     valid_weather = weather and weather != "N/A"
-    valid_attendance = attendance and attendance != "N/A"
+    valid_attendance = attendance and attendance not in (None, "N/A")
 
     game_info = None
     if valid_venue and valid_weather:
@@ -758,50 +771,106 @@ def save_combined_scorecard(
         elements.append(Paragraph(game_info, styles["Normal"]))
         elements.append(Spacer(1, 4))
 
-    # box score
-    inning_run_summary, team_hits, team_errors = compute_box_score_data(play_by_play_data)
+    # ---- Box Score ----
+    if play_by_play_data is not None:
+        inning_run_summary, team_hits, team_errors = compute_box_score_data(play_by_play_data)
 
-    max_inning = max(inning_run_summary.columns) if not inning_run_summary.empty else 9
-    column_headers = ["Team"] + [str(i) for i in range(1, max_inning + 1)] + ["R", "H", "E"]
+        max_inning = max(inning_run_summary.columns) if not inning_run_summary.empty else 9
+        column_headers = ["Team"] + [str(i) for i in range(1, max_inning + 1)] + ["R", "H", "E"]
 
-    box_score_data = []
-    for team_abbr, runs_per_inning in inning_run_summary.iterrows():
-        row = [TEAM_ABBR_TO_NAME.get(team_abbr, team_abbr)]
-        row += [runs_per_inning.get(i, 0) for i in range(1, max_inning + 1)]
+        box_score_data = []
 
-        total_runs = sum(runs_per_inning)
-        total_hits = team_hits.get(team_abbr, 0)
-        total_errors = team_errors.get(team_abbr, 0)
-        row += [total_runs, total_hits, total_errors]
-        box_score_data.append(row)
+        for team_abbr, runs_per_inning in inning_run_summary.iterrows():
+            row = [TEAM_ABBR_TO_NAME.get(team_abbr, team_abbr)]
+            row += [runs_per_inning.get(i, 0) for i in range(1, max_inning + 1)]
 
-    box_score_table = Table([column_headers] + box_score_data, hAlign="CENTER")
-    box_score_table.setStyle(
-        TableStyle(
-            [
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ]
+            total_runs = int(sum(runs_per_inning))
+            total_hits = int(team_hits.get(team_abbr, 0))
+            total_errors = int(team_errors.get(team_abbr, 0))
+
+            row += [total_runs, total_hits, total_errors]
+            box_score_data.append(row)
+
+        box_score_table = Table([column_headers] + box_score_data, hAlign="CENTER")
+        box_score_table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ]
+            )
         )
-    )
 
-    elements.append(Spacer(1, 6))
-    elements.append(Paragraph("<b>Box Score</b>", styles["Heading2"]))
-    elements.append(box_score_table)
-    elements.append(Spacer(1, 10))
+        elements.append(Spacer(1, 6))
+        elements.append(Paragraph("<b>Box Score</b>", styles["Heading2"]))
+        elements.append(box_score_table)
+        elements.append(Spacer(1, 10))
 
-    # scorecards
+    # ---- Detailed scorecards by team ----
     ROW_HEIGHT = 40
     BOX_FONT_SIZE = 8
 
+    # Determine max inning across all teams (for the batter tables)
+    all_inning_cols = []
+    for team_df in team_scorecards.values():
+        all_inning_cols.extend([c for c in team_df.columns if str(c).isdigit()])
+    max_inning_team = max(map(int, all_inning_cols)) if all_inning_cols else 9
+
+            # ---- Pitching stats for this team ----
+    if pitcher_stats:
+            elements.append(Spacer(1, 6))
+            elements.append(Paragraph(f"<b>Pitching Stats - {full_team_name}</b>", styles["Heading2"]))
+
+            pitcher_table_data = [["Pitcher", "IP", "ER", "H", "HR", "BB", "K"]]
+
+            for pitcher_id, stats in pitcher_stats.items():
+                # pitcher_stats[...] already stores which team they pitched for
+                if stats.get("team") != team:
+                    continue
+
+                name = str(id_to_name.get(pitcher_id, pitcher_id)).title()
+
+                pitcher_table_data.append([
+                    name,
+                    stats.get("IP", 0),
+                    stats.get("ER", 0),
+                    stats.get("H", 0),
+                    stats.get("HR", 0),
+                    stats.get("BB", 0),
+                    stats.get("K", 0),
+                ])
+
+            if len(pitcher_table_data) > 1:  # means we actually found pitchers
+                pitcher_table = Table(
+                    pitcher_table_data,
+                    colWidths=[120, 40, 40, 40, 40, 40, 40],
+                    hAlign="LEFT",
+                )
+                pitcher_table.setStyle(TableStyle([
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ]))
+
+                elements.append(pitcher_table)
+                elements.append(Spacer(1, 12))
+
+
     for idx, (team_key, batter_stats) in enumerate(team_scorecards.items()):
         team = team_key[0] if isinstance(team_key, tuple) else team_key
+        full_team_name = TEAM_ABBR_TO_NAME.get(team, team)
         print(f"DEBUG: Generating scorecard for {team}")
+
         if batter_stats is None or batter_stats.empty:
             print(f"WARNING: No data for team {team}")
             continue
@@ -809,52 +878,58 @@ def save_combined_scorecard(
         full_team_name = TEAM_ABBR_TO_NAME.get(team, team)
         elements.append(Paragraph(f"<b>{full_team_name}</b>", styles["Heading2"]))
 
-        inning_columns = [
-            col for team_df in team_scorecards.values() for col in team_df.columns if col.isdigit()
-        ]
-        max_inning_team = max(map(int, inning_columns)) if inning_columns else 9
-
-        table_data = [["batter"] + [str(i) for i in range(1, max_inning_team + 1)] + ["PA", "H", "BB", "SO"]]
+        # Header row: batter, inning columns, PA/H/BB/SO
+        header_row = ["batter"] + [str(i) for i in range(1, max_inning_team + 1)] + ["PA", "H", "BB", "SO"]
+        table_data = [header_row]
 
         for _, row in batter_stats.iterrows():
             display_batter = str(row["batter"]).title()
             row_data = [display_batter]
 
-            for i in range(1, max_inning_team + 1):
-                outcome = row.get(str(i), "-")
+            for inning_num in range(1, max_inning_team + 1):
+                outcome = row.get(str(inning_num), "-")
                 if isinstance(outcome, tuple):
                     outcome = outcome[0]
 
-                matching_play = play_by_play_data[
-                    (play_by_play_data["batter_name"] == row["batter"])
-                    & (play_by_play_data["team"] == team)
-                    & (play_by_play_data["inning"] == i)
-                ]
+                # Find matching play for base/ball/strike info
                 bases = []
-                if not matching_play.empty:
-                    initial = matching_play.iloc[0].get("initial_bases_reached", [])
-                    advanced = matching_play.iloc[0].get("batter_bases_reached", [])
-                    bases = sorted(set(initial + advanced))
-                    balls = int(matching_play.iloc[0]["balls"])
-                    strikes = int(matching_play.iloc[0]["strikes"])
-                else:
-                    balls = 0
-                    strikes = 0
+                balls = 0
+                strikes = 0
+
+                if play_by_play_data is not None:
+                    matching_play = play_by_play_data[
+                        (play_by_play_data["batter_name"] == row["batter"])
+                        & (play_by_play_data["team"] == team)
+                        & (play_by_play_data["inning"] == inning_num)
+                    ]
+
+                    if not matching_play.empty:
+                        first = matching_play.iloc[0]
+                        initial = first.get("initial_bases_reached", [])
+                        advanced = first.get("batter_bases_reached", [])
+                        bases = sorted(set((initial or []) + (advanced or [])))
+
+                        if "balls" in first:
+                            balls = int(first["balls"])
+                        if "strikes" in first:
+                            strikes = int(first["strikes"])
 
                 row_data.append(
                     BaseballDiamondGraphic(str(outcome), bases=bases, balls=balls, strikes=strikes)
                 )
 
+            # Add PA / H / BB / SO from the batter_stats DataFrame
             row_data += [row["PA"], row["H"], row["BB"], row["SO"]]
             table_data.append(row_data)
 
+        # Column widths
         num_stat_cols = 4
         total_columns = 1 + max_inning_team + num_stat_cols
 
         page_width = landscape(letter)[0]
-        usable_width = page_width - 80
+        usable_width = page_width - 80  # margins
 
-        batter_col_factor = 2
+        batter_col_factor = 2  # batter column is wider
         other_cols = total_columns - 1 + batter_col_factor
         col_width = usable_width / other_cols
         col_widths = [col_width * batter_col_factor] + [col_width] * (total_columns - 1)
@@ -880,11 +955,17 @@ def save_combined_scorecard(
         elements.append(table)
         elements.append(Spacer(1, 12))
 
+        # Page break between teams (except after the last one)
         if idx < len(team_scorecards) - 1:
             elements.append(PageBreak())
 
-    # build pdf
-    doc.build(elements, onFirstPage=draw_page_background, onLaterPages=draw_page_background)
+    # ---- Build the PDF ----
+    doc.build(
+        elements,
+        onFirstPage=draw_page_background,
+        onLaterPages=draw_page_background,
+    )
+
     print(f"PDF scorecard saved at: {output_pdf}")
 
 
@@ -1304,15 +1385,17 @@ if __name__ == "__main__":
 
     if df is not None:
         team_scorecards, pitcher_stats, play_by_play_data, id_to_name = process_play_by_play(df)
-        save_combined_scorecard(
-            team_scorecards,
-            output_pdf,
-            venue=venue,
-            weather=weather,
-            attendance=attendance,
-            title=title_text,
-            play_by_play_data=play_by_play_data,
-            id_to_name=id_to_name,
-        )
+    save_combined_scorecard(
+        team_scorecards,
+        output_pdf,
+        venue=venue,
+        weather=weather,
+        attendance=attendance,
+        title=title_text,
+        play_by_play_data=play_by_play_data,
+        id_to_name=id_to_name,
+        pitcher_stats=pitcher_stats,   # 👈 add this
+    )
+
 
     input("Press Enter to exit...")
